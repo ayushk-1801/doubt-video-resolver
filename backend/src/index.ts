@@ -1,10 +1,13 @@
 import express, { Request, Response } from "express";
-import { processDoubt } from "./model";
+import { answerStudentDoubt } from "./gemini";
 
-const app = express();  
+const app = express();
+
+app.use(express.json());
 
 app.get("/", async (req: Request, res: Response) => {
-  const result = await processDoubt("what is the capital of india?");
+  const body = req.body;
+  const result = await answerStudentDoubt(body.doubt, body.studentContext);
   res.send(result);
 });
 

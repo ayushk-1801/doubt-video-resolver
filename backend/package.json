@@ -21,7 +21,11 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
     "@types/express": "^5.0.1",
+    "dotenv": "^16.5.0",
+    "elevenlabs": "^1.56.1",
+    "elevenlabs-node": "^2.0.3",
     "express": "^5.1.0",
-    "nodemon": "^3.1.9"
+    "nodemon": "^3.1.9",
+    "zod": "^3.24.2"
   }
 }
