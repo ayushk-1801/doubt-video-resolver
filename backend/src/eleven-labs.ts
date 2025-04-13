@@ -1,37 +1,40 @@
-import { ElevenLabsClient } from "elevenlabs";
-import dotenv from "dotenv";
+import * as dotenv from 'dotenv';
+import { ElevenLabsClient } from 'elevenlabs';
+import { createWriteStream } from 'fs';
+import { v4 as uuid } from 'uuid';
+
 dotenv.config();
 
-const elevenLabsApiKey = process.env.ELEVEN_LABS_API_KEY;
-const voiceID = "D38z5RcWu1voky8WS1ja"; // Fin
-const modelID = "eleven_multilingual_v2";
+// const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVEN_LABS_API_KEY = "sk_5ba3eb802287f4e4a7e25b1d65d79298f283f01edf247ac4";
 
 const client = new ElevenLabsClient({
-  apiKey: elevenLabsApiKey,
+  apiKey: ELEVEN_LABS_API_KEY,
 });
 
-async function convertTextToSpeech({
-  text,
-  fileName,
-}: {
-  text: string;
-  fileName: string;
-}) {
-  const audio = await client.generate({
-    voice: voiceID,
-    text: text,
-    model_id: modelID,
-    voice_settings: {
-      stability: 0.5,
-      similarity_boost: 0.5,
-      style: 0.5,
-      speed: 0.5,
-    },
+export const createAudioFileFromText = async (text: string): Promise<string> => {
+  return new Promise<string>(async (resolve, reject) => {
+    try {
+      const audio = await client.textToSpeech.convert('JBFqnCBsd6RMkjVDRZzb', {
+        model_id: 'eleven_multilingual_v2',
+        text,
+        output_format: 'mp3_44100_128',
+        voice_settings: {
+          stability: 0,
+          similarity_boost: 0,
+          use_speaker_boost: true,
+          speed: 1.0,
+        },
+      });
+
+      const fileName = `${uuid()}.mp3`;
+      const fileStream = createWriteStream(fileName);
+
+      audio.pipe(fileStream);
+      fileStream.on('finish', () => resolve(fileName));
+      fileStream.on('error', reject);
+    } catch (error) {
+      reject(error);
+    }
   });
-
-  // Save the audio to file
-  const fs = require("fs");
-  audio.pipe(fs.createWriteStream(fileName));
-}
-
-export { convertTextToSpeech, client };
+};

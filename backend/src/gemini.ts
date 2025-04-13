@@ -17,72 +17,56 @@ const model = genAI.getGenerativeModel({
 });
 
 const template = `
-  You are an empathetic and knowledgeable tutor who helps students with their academic doubts.
-  Your goal is to provide personalized, clear explanations that address the student's specific question.
-  You should adapt your response style based on context clues about the student's level of understanding.
+  You are an empathetic and knowledgeable friend helping a student with their academic doubts.
+  Your goal is to provide personalized, conversational explanations that address the specific question.
+  Make your answers sound natural, as if a helpful human friend is explaining - not like an AI.
   
-  For beginners: Use simpler language, more examples, and step-by-step explanations.
-  For intermediate learners: Provide more detailed explanations with relevant concepts.
-  For advanced learners: Include deeper insights, connections to broader topics, and nuanced details.
+  Adapt your response style based on context clues about the student's level of understanding:
   
-  You will always respond with a JSON array of messages, with a maximum of 10 messages.
-  Each message has the following properties:
-  - text: Your helpful explanation text
-  - facialExpression: The appropriate facial expression for the content
-  - animation: A suitable animation that complements your response
+  For beginners: Use casual language, relatable examples, and patient step-by-step explanations.
+  For intermediate learners: Balance friendly tone with more detailed explanations of relevant concepts.
+  For advanced learners: Maintain conversational style while including deeper insights and nuanced details.
   
-  The different facial expressions are: smile, sad, angry, surprised, funnyFace, and default.
-  The different animations are: Idle, TalkingOne, TalkingThree, SadIdle, Defeated, Angry, 
-  Surprised, DismissingGesture and ThoughtfulHeadShake.
+  You will always respond with a JSON object containing a single explanation text.
   
-  Use a friendly and encouraging tone. Break complex topics into manageable parts.
-  Include relevant examples to illustrate concepts when helpful.
+  IMPORTANT CONSTRAINTS:
+  - Keep your response concise, ideally around 1000-2000 characters maximum.
+  - Focus on the most important concepts and explanations.
+  - Do NOT use Markdown tables in your explanations.
+  - When comparing items, use bullet points or numbered lists instead of tables.
+  - Present comparative information in paragraph form or with clear headings and bullet points.
+  - Avoid using the pipe character (|) in your formatting.
+  - Use simple formatting only - avoid complex markdown that might not render well in text-to-speech.
+  - Limit the use of special characters and symbols that might not be properly vocalized.
+  - Use contractions (like "don't", "can't", "I'll") as humans naturally do.
+  - Occasionally include thinking phrases like "hmm", "let me think", or "you know what".
+  - Include occasional filler words like "actually", "basically", "to be honest" where appropriate.
+  - Sometimes start sentences with conjunctions like "And", "But", or "So".
+  - Vary sentence length to create natural rhythm - mix short sentences with longer ones.
+  
+  Use a warm, friendly tone. Break complex topics into conversational chunks.
+  Include relevant examples that feel personal and relatable when helpful, but stay concise.
 `;
 
 const generationConfig = {
   temperature: 0.3,
   topP: 0.95,
   topK: 40,
-  maxOutputTokens: 8192,
+  maxOutputTokens: 2000,
   responseMimeType: "application/json",
   responseSchema: {
     type: SchemaType.OBJECT,
     properties: {
-      messages: {
-        type: SchemaType.ARRAY,
-        items: {
-          type: SchemaType.OBJECT,
-          properties: {
-            text: { type: SchemaType.STRING },
-            facialExpression: { type: SchemaType.STRING },
-            animation: { type: SchemaType.STRING },
-          },
-          required: ["text", "facialExpression", "animation"],
-        },
-      },
+      text: { type: SchemaType.STRING },
     },
-    required: ["messages"],
+    required: ["text"],
   },
 };
 
 const parser = z.object({
-  messages: z.array(
-    z.object({
-      text: z.string().describe("Personalized explanation for the student"),
-      facialExpression: z
-        .string()
-        .describe(
-          "Facial expression to be used by the AI. Select from: smile, sad, angry, surprised, funnyFace, and default"
-        ),
-      animation: z.string().describe(
-        `Animation to be used by the AI. Select from: Idle, TalkingOne, TalkingThree, SadIdle, 
-          Defeated, Angry, Surprised, DismissingGesture, and ThoughtfulHeadShake.`
-      ),
-    })
-  ),
+  text: z.string().describe("Personalized explanation for the student"),
 });
 
-// Function to validate response against Zod schema
 function validateResponse(response: any) {
   try {
     return parser.parse(response);
@@ -92,19 +76,31 @@ function validateResponse(response: any) {
   }
 }
 
-// Chain-like structure to process student doubts through Gemini model
+function truncateExplanation(text: string, maxChars: number = 5000): string {
+  if (text.length <= maxChars) return text;
+  
+  const endingPunctuation = ['.', '!', '?'];
+  let cutoffPoint = maxChars;
+  
+  for (let i = maxChars; i > maxChars * 0.8; i--) {
+    if (endingPunctuation.includes(text[i])) {
+      cutoffPoint = i + 1;
+      break;
+    }
+  }
+  
+  return text.substring(0, cutoffPoint);
+}
+
 async function answerStudentDoubt(
   doubt: string,
   studentContext: StudentContext = {}
 ) {
   try {
-    // Add any available context about the student to personalize the response
     const contextInfo = formatStudentContext(studentContext);
 
-    // Create a properly formatted prompt combining the template and question
     const fullPrompt = `${template}\n\n${contextInfo}Student doubt: ${doubt}`;
 
-    // Use a direct generation instead of chat session
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
       generationConfig: generationConfig as GenerationConfig,
@@ -113,8 +109,11 @@ async function answerStudentDoubt(
     const responseText = result.response.text();
     const parsedResponse = JSON.parse(responseText);
     console.log(parsedResponse);
+    
+    if (parsedResponse.text) {
+      parsedResponse.text = truncateExplanation(parsedResponse.text);
+    }
 
-    // Validate response against schema
     return validateResponse(parsedResponse);
   } catch (error) {
     console.error("Error processing student doubt:", error);
@@ -122,7 +121,6 @@ async function answerStudentDoubt(
   }
 }
 
-// Interface for student context information
 interface StudentContext {
   gradeLevel?: string;
   subject?: string;
@@ -131,7 +129,6 @@ interface StudentContext {
   difficultyLevel?: "beginner" | "intermediate" | "advanced";
 }
 
-// Format student context into a string for the prompt
 function formatStudentContext(context: StudentContext): string {
   if (Object.keys(context).length === 0) return "";
 

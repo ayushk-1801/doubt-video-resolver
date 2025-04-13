@@ -1,10 +1,12 @@
-import { Button } from "@/components/ui/button";
+import { VideoAnswerForm } from "@/components/AudioAnswerForm";
 
 function App() {
   return (
-    <>
-      <Button>Click me</Button>
-    </>
+    <div className="min-h-screen bg-background py-8">
+      <div className="container mx-auto">
+        <VideoAnswerForm />
+      </div>
+    </div>
   );
 }
 
