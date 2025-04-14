@@ -1,3 +1,6 @@
 input/
 outputs/
 audio/
+animations/
+src/__pycache__/
+src/media/

@@ -2,6 +2,7 @@ import express from "express";
 import { answerStudentDoubt } from "./gemini";
 import { createAudioFileFromText } from "./eleven-labs";
 import { runWav2LipInference } from "./wav2lip";
+import { generateManimAnimation } from "./manim";
 import path from "path";
 import fs from "fs";
 import cors from "cors";
@@ -13,6 +14,7 @@ app.use(cors());
 // Serve static files
 app.use("/outputs", express.static(path.join(__dirname, "../outputs")));
 app.use("/audio", express.static(path.join(__dirname, "../audio")));
+app.use("/animations", express.static(path.join(__dirname, "../animations")));
 
 // Create directories if they don't exist
 const ensureDirectoryExists = (dirPath: string) => {
@@ -24,6 +26,7 @@ const ensureDirectoryExists = (dirPath: string) => {
 ensureDirectoryExists(path.join(__dirname, "../outputs"));
 ensureDirectoryExists(path.join(__dirname, "../audio"));
 ensureDirectoryExists(path.join(__dirname, "../input"));
+ensureDirectoryExists(path.join(__dirname, "../animations"));
 
 app.post("/answer", function (req, res) {
   (async () => {
@@ -50,14 +53,24 @@ app.post("/answer", function (req, res) {
         path.join(__dirname, "../outputs")
       );
       
+      // Generate Manim animation
+      const animationPath = path.join(__dirname, "../animations");
+      const animationFile = await generateManimAnimation(
+        doubt,
+        answer.text,
+        animationPath
+      );
+      
       // Get the relative paths for the frontend to access
       const relativeAudioPath = `audio/${path.basename(audioFilePath)}`;
       const relativeVideoPath = `outputs/${path.basename(videoFile)}`;
+      const relativeAnimationPath = `animations/${path.basename(animationFile)}`;
 
       res.json({
         answer,
         audioFile: relativeAudioPath,
-        videoFile: relativeVideoPath
+        videoFile: relativeVideoPath,
+        animationFile: relativeAnimationPath
       });
     } catch (error: any) {
       console.error("Error processing request:", error);
@@ -96,4 +109,58 @@ app.post("/generate-video", async (req, res) => {
       success: false,
     });
   }
+});
+
+// Add endpoint for direct animation generation testing
+app.post("/generate-animation", function (req, res) {
+  (async () => {
+    try {
+      const { doubt, answer } = req.body;
+      
+      if (!doubt) {
+        return res.status(400).json({
+          error: "Doubt is required",
+          success: false
+        });
+      }
+      
+      // If answer isn't provided, generate one using Gemini
+      let finalAnswer = answer;
+      if (!finalAnswer) {
+        try {
+          const generatedAnswer = await answerStudentDoubt(doubt, {});
+          finalAnswer = generatedAnswer.text;
+        } catch (error) {
+          console.error("Failed to generate answer with Gemini:", error);
+          return res.status(500).json({
+            error: "Failed to generate an answer for the doubt",
+            success: false
+          });
+        }
+      }
+      
+      console.log(`Generating animation for doubt: "${doubt.substring(0, 50)}..."`);
+      
+      const animationFile = await generateManimAnimation(
+        doubt,
+        finalAnswer,
+        path.join(__dirname, "../animations/")
+      );
+      
+      const relativeAnimationPath = `animations/${path.basename(animationFile)}`;
+      
+      res.json({ 
+        animationFile: relativeAnimationPath,
+        answer: finalAnswer,
+        success: true
+      });
+    } catch (error: any) {
+      console.error("Error generating animation:", error);
+      res.status(500).json({
+        error: "An error occurred while generating the animation",
+        details: error.message || String(error),
+        success: false,
+      });
+    }
+  })();
 });
