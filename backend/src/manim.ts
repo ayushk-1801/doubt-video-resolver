@@ -2,17 +2,19 @@ import { exec } from "child_process";
 import path from "path";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
-import Groq from "groq-sdk";
 import dotenv from "dotenv";
+import { GoogleGenerativeAI, GenerationConfig } from "@google/generative-ai";
 
 dotenv.config();
 
-// Initialize Groq client
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+// Initialize Gemini client
+const geminiApiKey = process.env.GEMINI_API_KEY;
+if (!geminiApiKey) throw new Error("GEMINI_API_KEY environment variable is not set");
 
-if (!process.env.GROQ_API_KEY) throw new Error("GROQ_API_KEY environment variable is not set");
+const genAI = new GoogleGenerativeAI(geminiApiKey);
+const geminiModel = genAI.getGenerativeModel({
+  model: "gemini-2.0-flash",
+});
 
 /**
  * Generates a Manim animation based on the student's doubt and the provided answer
@@ -39,8 +41,8 @@ export async function generateManimAnimation(
       const outputFileName = `doubt_animation_${animationId}.mp4`;
       const outputFilePath = path.join(outputPath, outputFileName);
 
-      // Generate Python script with custom Manim animation
-      const pythonScript = await generateManimScriptWithGroq(doubt, answer);
+      // Generate Python script with custom Manim animation using Gemini API
+      const pythonScript = await generateManimScriptWithGemini(doubt, answer);
       fs.writeFileSync(pythonScriptPath, pythonScript);
 
       // Execute the Manim command to generate the animation
@@ -78,26 +80,42 @@ export async function generateManimAnimation(
 }
 
 /**
- * Uses Groq's qwen-2.5-coder-32b model to generate a customized Manim script based on the doubt and answer
+ * Uses Gemini's model to generate a customized Manim script based on the doubt and answer
  */
-async function generateManimScriptWithGroq(doubt: string, answer: string): Promise<string> {
+async function generateManimScriptWithGemini(doubt: string, answer: string): Promise<string> {
   try {
     const prompt = `
-You are an expert in mathematics and visualization who will create a Manim animation script to explain a student's doubt.
+You are an expert in mathematics and visualization who will create a Manim animation script focusing on DIAGRAMS and EQUATIONS to explain a mathematical concept.
 
 The student has asked: "${doubt}"
 
 An answer has been provided: "${answer}"
 
 Create a Python Manim script that will:
-1. Create a visually engaging explanation using Manim's animation capabilities
-2. Include relevant visualizations and graphics that help explain the concepts
-3. Break down complex ideas into visual components
-4. Use appropriate colors, highlighting, and animation techniques
-5. Make sure to include visual elements like graphs, geometric shapes, etc. relevant to the topic
+1. Focus PRIMARILY on visual diagrams, graphs, and mathematical equations
+2. Use MINIMAL text - only essential labels, titles, and brief annotations
+3. Prioritize mathematical notation using MathTex for equations rather than explanatory text
+4. Create clean, clear visualizations that demonstrate the concept visually
+5. Use animations, transformations, and highlighting to show relationships and processes
 6. Structure the animation in a logical teaching sequence
 
-IMPORTANT REQUIREMENTS:
+IMPORTANT VISUALIZATION REQUIREMENTS:
+- Focus on DIAGRAMS FIRST - create meaningful visual representations
+- Use color strategically to highlight important elements
+- Use animations to show mathematical processes and transformations
+- Keep visual elements clean, minimal, and easy to understand
+- Only include text for essential labels and brief annotations
+- Use MathTex for mathematical notation rather than Text objects when possible
+- Show space between words in the animation
+
+SPECIFIC TEXT LIMITATIONS:
+- NO paragraphs of explanatory text
+- NO step-by-step instructions written as text
+- NO verbose explanations - if text is needed, keep it under 5 words per label
+- The animation should be understandable without reading large amounts of text
+- Use mathematical notation rather than words whenever possible
+
+TECHNICAL REQUIREMENTS:
 - The script must be complete and immediately runnable with Manim
 - Use Manim's Scene class as the base for your animation
 - Name your main class "DoubtAnimationScene" 
@@ -107,17 +125,35 @@ IMPORTANT REQUIREMENTS:
 - ONLY provide Python code, no explanations before or after
 - ALWAYS define any variables before using them (e.g., declare 'font_size = 22' at the beginning of your script)
 - ALWAYS include proper error handling and variable initialization
+- ALWAYS define ALL objects individually FIRST, then create any VGroup, then position objects
+- NEVER use references to objects that haven't been defined yet
 
-LAYOUT REQUIREMENTS:
-- Implement a split-screen layout with text on the left side and diagrams on the right side
-- For text and explanations: place all Text objects on the LEFT half of the screen
-- For diagrams and visuals: place all graphical elements on the RIGHT half of the screen
-- Example positioning:
-  * text_element.to_edge(LEFT, buff=0.5)  # Place text on left side
-  * diagram.to_edge(RIGHT, buff=1.0)  # Place diagram on right side
-- You can use a vertical line to separate the two sections if needed
-- Keep all text aligned on the left side throughout the animation
-- As concepts progress, update the diagram on the right while keeping text on the left
+CRITICAL SAFETY REQUIREMENTS:
+- ALWAYS check if an object exists or has elements before accessing it with indexes
+- When using indexed access like equation[0], ALWAYS use a try/except block or verify the length first
+- Use safe methods for positioning like:
+  * obj.next_to(reference, direction, buff=0.2)
+  * obj.to_edge(direction, buff=0.5)
+- When accessing components of MathTex, use get_parts_by_tex() when possible
+- When you need index access, verify length first:
+  * if len(equation) > 2: equation[2]...
+- Alternatively, use a safe getter function like:
+  * def safe_get(obj, idx, default_pos=ORIGIN):
+      try:
+          return obj[idx].get_center()
+      except (IndexError, TypeError):
+          return default_pos
+
+CLEAR SCREEN HELPER:
+- Use this exact implementation for the clear_all_mobjects helper method:
+  def clear_all_mobjects(self):
+      if self.mobjects:
+          self.play(*[FadeOut(mob) for mob in self.mobjects])
+          self.remove(*self.mobjects)
+- NEVER use self.camera.frame in your clear method - it causes errors
+- When clearing the screen between sections, use this helper method as shown:
+  * self.clear_all_mobjects()
+- Clear the screen between sections to avoid clutter
 
 SCENE CLASS REQUIREMENTS:
 - For 2D animations: Your class should inherit from Scene (class DoubtAnimationScene(Scene))
@@ -140,39 +176,45 @@ MANIM CLASS REQUIREMENTS:
   * triangle = Polygon(*vertices, fill_opacity=0.5, color=BLUE)
 - Always include implementation for any non-standard components you need
 
+MANIM COMPATIBILITY REQUIREMENTS:
+- When using ParametricFunction or FunctionGraph, use 'points' NOT 'graph_points()'
+- For any function f, access its points with 'f.points' not 'f.graph_points()'  
+- For getting specific points on a function graph, use 'f.point_from_proportion(0.5)' for midpoint
+- For endpoints, use 'f.points[0]' for start and 'f.points[-1]' for end
+- NEVER use graph_points() method as it doesn't exist in current Manim versions
+- Create axes explicitly with NumberPlane() or Axes() before plotting functions
+
 CRITICAL DISPLAY REQUIREMENTS:
-- Text must NEVER overflow the bottom of the frame - this is the most critical issue to avoid
-- Use pagination: display at most 5 lines of text at once, then fade out and show the next set
-- Use small font sizes (20-22) for content text to ensure it fits
-- Implement a paging mechanism where text is shown in chunks, with transitions between pages
-- After displaying 5 lines of text, fade them out before showing the next set
+- Prioritize VISUALS over text - the animation should be primarily diagrams and equations
+- Keep any text brief and focused on labels rather than explanations
+- Use MathTex for equations and mathematical notation
+- Use MathTex instead of Text wherever mathematical notation is needed
+- Keep any text small and concise (font_size around 18-22)
 - ALWAYS explicitly REMOVE objects from scene after fading them out with self.remove()
-- Implement a clear_all_mobjects helper method to thoroughly clear the scene between sections
+- Implement a clear_all_mobjects helper method exactly as specified above
 - Track ALL created objects and ensure they are properly removed when no longer needed
 - Keep all graphics and visualizations properly scaled to fit the screen
 - Test all coordinates to ensure content is fully visible within default Manim frame
+- Clear the screen between sections to avoid clutter
+- Show space between words in the animation
 
 Provide STRICTLY ONLY the Python code for the Manim script, with absolutely no additional explanation text before or after the code.
 `;
 
-    // Use Groq SDK to generate the Manim script
-    const chatCompletion = await groq.chat.completions.create({
-      messages: [
-        {
-          role: "system" as const,
-          content: "You are an expert Python programmer specializing in Manim animations for educational content. Return only executable Python code with no explanations or comments outside the code. ALWAYS define all variables before using them. ONLY use standard Manim classes that exist in Manim CE, not custom ones unless you define them yourself. If creating 3D scenes, inherit from ThreeDScene rather than instantiating it. Create animations with text on the left and diagrams on the right."
-        },
-        {
-          role: "user" as const,
-          content: prompt
-        }
-      ],
-      model: "qwen-2.5-coder-32b",
+    const generationConfig: GenerationConfig = {
       temperature: 0.2,
-      max_tokens: 4000
+      topP: 0.95,
+      topK: 64,
+      maxOutputTokens: 8192,
+    };
+
+    // Use Gemini to generate the Manim script
+    const result = await geminiModel.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig,
     });
 
-    const scriptText = chatCompletion.choices[0].message.content || '';
+    const scriptText = result.response.text();
     
     // Clean up any code block markers and extract only the Python code
     let cleanScript = extractPythonCode(scriptText);
@@ -197,6 +239,16 @@ Provide STRICTLY ONLY the Python code for the Manim script, with absolutely no a
       );
     }
     
+    // Fix common Manim compatibility issues
+    
+    // Replace any usage of graph_points() with points
+    cleanScript = cleanScript.replace(/\.graph_points\(\)/g, '.points');
+    
+    // Replace any usage of point_from_prop as needed
+    if (!cleanScript.includes('point_from_proportion') && cleanScript.includes('get_point_from_function')) {
+      cleanScript = cleanScript.replace(/\.get_point_from_function\(/g, '.point_from_proportion(');
+    }
+    
     // Add the entry point if it's missing
     if (!cleanScript.includes("if __name__ == \"__main__\"")) {
       cleanScript += `
@@ -209,8 +261,8 @@ if __name__ == "__main__":
     
     return cleanScript;
   } catch (error) {
-    console.error("Failed to generate Manim script with Groq:", error);
-    // Fall back to the template-based script if Groq fails
+    console.error("Failed to generate Manim script with Gemini:", error);
+    // Fall back to the template-based script if Gemini fails
     return generateBasicManimScript(doubt, answer);
   }
 }
@@ -290,22 +342,32 @@ function generateBasicManimScript(doubt: string, answer: string): string {
   };
   
   const cleanDoubt = cleanText(doubt);
-  const cleanAnswer = cleanText(answer);
   
-  // Simple template for a Manim animation that explains the doubt and answer
-  // Using Text instead of Tex to avoid LaTeX dependency
+  // Simple template for a Manim animation that explains using diagrams
   return `
 from manim import *
 
 class DoubtAnimationScene(Scene):
     def construct(self):
+        # Define common variables
+        font_size = 22
+        
+        # Helper function to safely get positions from indexed objects
+        def safe_get_center(obj, idx, default_offset=np.array([0, 0, 0])):
+            try:
+                if obj and idx < len(obj):
+                    return obj[idx].get_center()
+                return ORIGIN + default_offset
+            except (IndexError, TypeError, AttributeError):
+                return ORIGIN + default_offset
+        
         # Clear everything helper
         def clear_all_mobjects(self):
-            self.play(*[FadeOut(mob) for mob in self.mobjects if mob != self.camera.frame])
-            self.remove(*self.mobjects)
-            self.add(self.camera.frame)
+            if self.mobjects:
+                self.play(*[FadeOut(mob) for mob in self.mobjects])
+                self.remove(*self.mobjects)
         
-        # Create a custom coordinate system (without using Axes which uses LaTeX)
+        # Create a custom coordinate system
         def create_custom_axes():
             # Create the axes lines
             x_axis = Line(LEFT * 4, RIGHT * 4, color=WHITE)
@@ -314,13 +376,13 @@ class DoubtAnimationScene(Scene):
             # Create origin point
             origin = Dot(np.array([0, 0, 0]), color=WHITE)
             
-            # Create axis labels using Text
-            x_label = Text("x", font_size=20, color=WHITE)
-            x_label.next_to(x_axis, RIGHT)
-            y_label = Text("y", font_size=20, color=WHITE)
-            y_label.next_to(y_axis, UP)
+            # Create axis labels using MathTex
+            x_label = MathTex("x", font_size=24, color=WHITE)
+            x_label.next_to(x_axis, DOWN, buff=0.2)
+            y_label = MathTex("y", font_size=24, color=WHITE)
+            y_label.next_to(y_axis, RIGHT, buff=0.2)
             
-            # Tick marks on x-axis - using lines and Text (not LaTeX)
+            # Tick marks on x-axis
             x_ticks = VGroup()
             x_labels = VGroup()
             for i in range(-3, 4):
@@ -332,8 +394,8 @@ class DoubtAnimationScene(Scene):
                 tick.move_to(np.array([i, 0, 0]))
                 x_ticks.add(tick)
                 
-                # Create label with Text
-                label = Text(str(i), font_size=16, color=WHITE)
+                # Create label with MathTex
+                label = MathTex(str(i), font_size=20, color=WHITE)
                 label.next_to(tick, DOWN, buff=0.1)
                 x_labels.add(label)
             
@@ -349,8 +411,8 @@ class DoubtAnimationScene(Scene):
                 tick.move_to(np.array([0, i, 0]))
                 y_ticks.add(tick)
                 
-                # Create label with Text
-                label = Text(str(i), font_size=16, color=WHITE)
+                # Create label with MathTex
+                label = MathTex(str(i), font_size=20, color=WHITE)
                 label.next_to(tick, LEFT, buff=0.1)
                 y_labels.add(label)
             
@@ -359,216 +421,135 @@ class DoubtAnimationScene(Scene):
                           x_ticks, x_labels, y_ticks, y_labels)
             return axes
         
-        # Create a title with the doubt
-        doubt_text = """${cleanDoubt}"""
-        
-        # Create title that stays at the top throughout the animation
-        title = Text("Question:", font_size=36, color=BLUE)
-        title.to_edge(UP + LEFT, buff=0.5)
+        # Start with a minimal title
+        title = MathTex("\\text{Mathematical Concept}", font_size=36, color=BLUE)
+        title.to_edge(UP, buff=1)
         self.play(Write(title))
-        self.wait(0.5)
+        self.wait(1)
         
-        # Process doubt text to ensure it fits
-        doubt_words = doubt_text.split()
-        doubt_lines = []
-        current_line = ""
+        # Create a simple function visualization
+        axes = create_custom_axes()
+        self.play(Create(axes))
+        self.wait(1)
         
-        # Break the doubt into lines of reasonable length
-        for word in doubt_words:
-            if len(current_line + " " + word) > 60:  # character limit per line
-                doubt_lines.append(current_line)
-                current_line = word
-            else:
-                if current_line:
-                    current_line += " " + word
+        # For quadratic equations, show the standard form
+        if "quadratic" in "${cleanDoubt}".lower():
+            # Show quadratic equation
+            quadratic = MathTex("ax^2 + bx + c = 0", font_size=32, color=WHITE)
+            quadratic.next_to(title, DOWN, buff=0.5)
+            self.play(Write(quadratic))
+            
+            # Highlight the coefficients
+            a_label = MathTex("a", font_size=28, color=RED)
+            b_label = MathTex("b", font_size=28, color=GREEN)
+            c_label = MathTex("c", font_size=28, color=BLUE)
+            
+            # Position safely without assuming indices
+            try:
+                if len(quadratic) > 0:
+                    a_pos = quadratic[0].get_center() + UP * 0.5 + LEFT * 1.0
+                    b_pos = quadratic[0].get_center() + UP * 0.5
+                    c_pos = quadratic[0].get_center() + UP * 0.5 + RIGHT * 1.0
                 else:
-                    current_line = word
-        if current_line:
-            doubt_lines.append(current_line)
-        
-        # Calculate how many lines we can show at once (limit to 5 lines per page)
-        lines_per_page = 5
-        total_pages = (len(doubt_lines) + lines_per_page - 1) // lines_per_page  # Ceiling division
-        
-        # Track all text objects for proper removal
-        all_doubt_text_objects = []
-        
-        # Show doubt text page by page
-        for page in range(total_pages):
-            start_idx = page * lines_per_page
-            end_idx = min(start_idx + lines_per_page, len(doubt_lines))
+                    a_pos = LEFT * 1.5 + UP * 0.5
+                    b_pos = ORIGIN + UP * 0.5
+                    c_pos = RIGHT * 1.5 + UP * 0.5
+            except (IndexError, TypeError):
+                a_pos = LEFT * 1.5 + UP * 0.5
+                b_pos = ORIGIN + UP * 0.5
+                c_pos = RIGHT * 1.5 + UP * 0.5
             
-            # Create text objects for this page
-            doubt_text_objects = VGroup()
-            for i in range(start_idx, end_idx):
-                line = doubt_lines[i]
-                line_text = Text(line, font_size=22)
-                if i == start_idx:
-                    line_text.next_to(title, DOWN, aligned_edge=LEFT, buff=0.3)
-                else:
-                    line_text.next_to(doubt_text_objects[-1], DOWN, aligned_edge=LEFT, buff=0.2)
-                doubt_text_objects.add(line_text)
-                all_doubt_text_objects.append(line_text)
+            a_label.move_to(a_pos)
+            b_label.move_to(b_pos)
+            c_label.move_to(c_pos)
             
-            # Add all objects to the scene explicitly
-            self.add(doubt_text_objects)
+            self.play(Write(a_label), Write(b_label), Write(c_label))
             
-            # Show this page
-            for line in doubt_text_objects:
-                self.play(Write(line), run_time=0.5)
+            # Show the quadratic formula
+            formula = MathTex("x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}", font_size=32, color=YELLOW)
+            formula.next_to(quadratic, DOWN, buff=0.7)
             
-            # Wait between pages
+            self.play(Write(formula))
             self.wait(1.5)
             
-            # If not the last page, explicitly remove before showing next page
-            if page < total_pages - 1:
-                self.play(FadeOut(doubt_text_objects))
-                self.remove(doubt_text_objects)
-        
-        # Explicitly clear all doubt text from scene
-        if all_doubt_text_objects:
-            self.play(*[FadeOut(obj) for obj in all_doubt_text_objects])
-            for obj in all_doubt_text_objects:
-                self.remove(obj)
-        
-        # Clear everything for answer section
-        clear_all_mobjects(self)
-        
-        # Add title back since we cleared everything
-        title = Text("Answer:", font_size=36, color=GREEN)
-        title.to_edge(UP + LEFT, buff=0.5)
-        self.play(Write(title))
-        self.wait(0.5)
-        
-        # Process the answer text
-        answer_text = """${cleanAnswer}"""
-        words = answer_text.split()
-        answer_lines = []
-        current_line = ""
-        
-        # Break the answer into lines of reasonable length
-        for word in words:
-            if len(current_line + " " + word) > 60:  # character limit per line
-                answer_lines.append(current_line)
-                current_line = word
-            else:
-                if current_line:
-                    current_line += " " + word
-                else:
-                    current_line = word
-        if current_line:
-            answer_lines.append(current_line)
-        
-        # Show answer text page by page (5 lines per page)
-        lines_per_page = 5
-        total_pages = (len(answer_lines) + lines_per_page - 1) // lines_per_page
-        
-        # Track all answer text objects for proper removal
-        all_answer_objects = []
-        
-        for page in range(total_pages):
-            start_idx = page * lines_per_page
-            end_idx = min(start_idx + lines_per_page, len(answer_lines))
+            # Show a parabola
+            parabola_points = []
+            for x in np.linspace(-3, 3, 30):
+                y = x**2  # Simple parabola
+                parabola_points.append(np.array([x, y, 0]))
             
-            # Create text objects for this page
-            answer_objects = VGroup()
-            for i in range(start_idx, end_idx):
-                line = answer_lines[i]
-                line_text = Text(line, font_size=22)
-                if i == start_idx:
-                    line_text.next_to(title, DOWN, aligned_edge=LEFT, buff=0.3)
-                else:
-                    line_text.next_to(answer_objects[-1], DOWN, aligned_edge=LEFT, buff=0.2)
-                answer_objects.add(line_text)
-                all_answer_objects.append(line_text)
+            # Create the curve
+            curve = VMobject(color=YELLOW)
+            curve.set_points_as_corners(parabola_points)
+            curve.shift(DOWN * 0.5)  # Move down to fit in frame
             
-            # Add all objects to the scene explicitly
-            self.add(answer_objects)
+            self.play(Create(curve))
             
-            # Show this page
-            for line in answer_objects:
-                self.play(Write(line), run_time=0.5)
+            # Mark the roots for a simple case where roots are visible
+            root1 = Dot(np.array([-1, 1, 0]), color=RED)
+            root2 = Dot(np.array([1, 1, 0]), color=RED)
             
-            # Wait between pages
-            self.wait(2)
+            root1_label = MathTex("x_1", font_size=24, color=RED)
+            root2_label = MathTex("x_2", font_size=24, color=RED)
             
-            # If not the last page, explicitly remove before showing next page
-            if page < total_pages - 1:
-                self.play(FadeOut(answer_objects))
-                self.remove(answer_objects)
-                for obj in answer_objects:
-                    self.remove(obj)
-            # If this is the last page of text, keep it visible and add a visual element
-            elif page == total_pages - 1 and "derivative" in answer_text.lower():
-                # Create a simple visual for derivative concept (without using Axes)
-                # This custom visual uses only Lines, Dots, and Text to explain derivatives
-                self.wait(1)
-                
-                # Add a visual element after the text
-                self.play(FadeOut(answer_objects))
-                
-                # Create custom coordinate system
-                axes = create_custom_axes()
-                self.play(Create(axes))
-                
-                # Create a parabola curve using dots and lines (instead of using plot function)
-                parabola_points = []
-                for x in np.linspace(-3, 3, 30):
-                    y = x**2  # Parabola function
-                    parabola_points.append(np.array([x, y, 0]))
-                
-                curve_dots = VGroup(*[Dot(point, radius=0.02, color=BLUE) for point in parabola_points])
-                
-                # Connect the dots with small line segments
-                curve_lines = VGroup()
-                for i in range(len(parabola_points) - 1):
-                    line = Line(parabola_points[i], parabola_points[i+1], color=BLUE)
-                    curve_lines.add(line)
-                
-                # Draw the curve
-                self.play(Create(curve_dots), Create(curve_lines))
-                
-                # Add label for the function
-                func_label = Text("f(x) = x²", font_size=20, color=BLUE)
-                func_label.move_to(np.array([2, 6, 0]))
-                self.play(Write(func_label))
-                
-                # Show a tangent line at x=1
-                tangent_point = np.array([1, 1, 0])
-                tangent_dot = Dot(tangent_point, color=RED)
-                # Tangent to x² at x=1 has slope 2x = 2(1) = 2
-                tangent_line = Line(
-                    np.array([0, -1, 0]),  # Point on line with x=0
-                    np.array([2, 3, 0]),   # Point on line with x=2
-                    color=RED
-                )
-                
-                self.play(Create(tangent_dot), Create(tangent_line))
-                
-                # Add label for derivative
-                deriv_label = Text("f'(x) = 2x", font_size=20, color=RED)
-                deriv_label.move_to(np.array([-2, 6, 0]))
-                
-                # Add label for slope at point
-                slope_label = Text("Slope at x=1: f'(1) = 2", font_size=18, color=RED)
-                slope_label.move_to(np.array([0, 4, 0]))
-                
-                self.play(Write(deriv_label), Write(slope_label))
-                
-                self.wait(3)
-                
-                # Fade everything out
-                self.play(
-                    FadeOut(axes), FadeOut(curve_dots), FadeOut(curve_lines),
-                    FadeOut(func_label), FadeOut(tangent_dot), FadeOut(tangent_line),
-                    FadeOut(deriv_label), FadeOut(slope_label)
-                )
+            root1_label.next_to(root1, DOWN, buff=0.2)
+            root2_label.next_to(root2, DOWN, buff=0.2)
+            
+            self.play(Create(root1), Create(root2), Write(root1_label), Write(root2_label))
+            self.wait(1)
+        else:
+            # Show a simple function
+            func_eq = MathTex("f(x) = x^2", font_size=32)
+            func_eq.next_to(title, DOWN, buff=0.5)
+            self.play(Write(func_eq))
+            
+            # Create the parabola
+            parabola_points = []
+            for x in np.linspace(-3, 3, 30):
+                y = x**2  # Parabola function
+                parabola_points.append(np.array([x, y, 0]))
+            
+            curve_dots = VGroup(*[Dot(point, radius=0.02, color=BLUE) for point in parabola_points])
+            
+            # Connect the dots with small line segments
+            curve_lines = VGroup()
+            for i in range(len(parabola_points) - 1):
+                line = Line(parabola_points[i], parabola_points[i+1], color=BLUE)
+                curve_lines.add(line)
+            
+            # Draw the curve
+            self.play(Create(curve_dots), Create(curve_lines))
+            self.wait(1)
+            
+            # Show a tangent line at x=1
+            tangent_point = np.array([1, 1, 0])
+            tangent_dot = Dot(tangent_point, color=RED)
+            # Tangent to x² at x=1 has slope 2x = 2(1) = 2
+            tangent_line = Line(
+                np.array([0, -1, 0]),  # Point on line with x=0
+                np.array([2, 3, 0]),   # Point on line with x=2
+                color=RED
+            )
+            
+            self.play(Create(tangent_dot), Create(tangent_line))
+            
+            # Add derivative label
+            deriv_label = MathTex("f'(x) = 2x", font_size=32, color=RED)
+            deriv_label.next_to(func_eq, DOWN, buff=0.4)
+            
+            # Add label for slope at point
+            slope_label = MathTex("f'(1) = 2", font_size=28, color=RED)
+            slope_label.next_to(deriv_label, DOWN, buff=0.4)
+            
+            self.play(Write(deriv_label), Write(slope_label))
+        
+        self.wait(2)
+        
+        # Fade everything out
+        self.play(*[FadeOut(mob) for mob in self.mobjects])
         
         # Final pause before ending
         self.wait(1)
-        
-        # Ensure we clear everything at the end
-        clear_all_mobjects(self)
 
 if __name__ == "__main__":
     scene = DoubtAnimationScene()

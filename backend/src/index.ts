@@ -36,41 +36,33 @@ app.post("/answer", function (req, res) {
       // Get answer from Gemini
       const answer = await answerStudentDoubt(doubt, studentContext);
       
-      // Generate audio from the answer
-      const audioFile = await createAudioFileFromText(answer.text);
+      // Skip audio generation
       
-      // Move the audio file to the proper directory
-      const audioFilePath = path.join(__dirname, "../audio", audioFile);
-      if (!fs.existsSync(audioFilePath)) {
-        fs.renameSync(audioFile, audioFilePath);
+      // Skip Wav2Lip video generation
+      
+      // Generate Manim animation - wrap with try/catch to handle potential animation generation failures
+      let animationFile = null;
+      let animationError = false;
+      try {
+        const animationPath = path.join(__dirname, "../animations");
+        animationFile = await generateManimAnimation(
+          doubt,
+          answer.text,
+          animationPath
+        );
+      } catch (animError) {
+        console.error("Animation generation error:", animError);
+        animationError = true;
       }
       
-      // Generate video using Wav2Lip
-      const sourceVideo = path.join(__dirname, "../input/input.mp4");
-      const videoFile = await runWav2LipInference(
-        sourceVideo,
-        audioFilePath,
-        path.join(__dirname, "../outputs")
-      );
-      
-      // Generate Manim animation
-      const animationPath = path.join(__dirname, "../animations");
-      const animationFile = await generateManimAnimation(
-        doubt,
-        answer.text,
-        animationPath
-      );
-      
-      // Get the relative paths for the frontend to access
-      const relativeAudioPath = `audio/${path.basename(audioFilePath)}`;
-      const relativeVideoPath = `outputs/${path.basename(videoFile)}`;
-      const relativeAnimationPath = `animations/${path.basename(animationFile)}`;
+      // Get the relative path for the frontend to access (if animation was generated)
+      const relativeAnimationPath = animationFile ? 
+        `animations/${path.basename(animationFile)}` : null;
 
       res.json({
         answer,
-        audioFile: relativeAudioPath,
-        videoFile: relativeVideoPath,
-        animationFile: relativeAnimationPath
+        animationFile: relativeAnimationPath,
+        animationError: animationError
       });
     } catch (error: any) {
       console.error("Error processing request:", error);

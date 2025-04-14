@@ -10,13 +10,13 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-interface AudioResponse {
-  audioUrl: string;
-  videoUrl?: string;
+interface AnimationResponse {
+  animationUrl?: string;
   question: string;
   answer: {
     text: string;
   };
+  animationError?: boolean;
 }
 
 interface StudentContext {
@@ -30,7 +30,7 @@ interface StudentContext {
 // Update this to match your backend URL
 const API_BASE_URL = "http://localhost:3001"; // Adjust this to your backend's address
 
-export function VideoAnswerForm() {
+export function DoubtResolverForm() {
   const [question, setQuestion] = useState("");
   const [studentContext, setStudentContext] = useState<StudentContext>({
     gradeLevel: "",
@@ -40,9 +40,10 @@ export function VideoAnswerForm() {
     difficultyLevel: "intermediate"
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [audioResponse, setAudioResponse] = useState<AudioResponse | null>(null);
+  const [animationResponse, setAnimationResponse] = useState<AnimationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previousTopicsInput, setPreviousTopicsInput] = useState("");
+  const [animationError, setAnimationError] = useState(false);
 
   const handleContextChange = (field: keyof StudentContext, value: string | string[]) => {
     setStudentContext(prev => ({
@@ -63,6 +64,7 @@ export function VideoAnswerForm() {
 
     setIsLoading(true);
     setError(null);
+    setAnimationError(false);
     
     try {
       // Clean up the student context to remove empty fields
@@ -89,12 +91,17 @@ export function VideoAnswerForm() {
       }
 
       const data = await response.json();
-      setAudioResponse({
-        audioUrl: `${API_BASE_URL}/${data.audioFile}`,
-        videoUrl: data.videoFile ? `${API_BASE_URL}/${data.videoFile}` : undefined,
+      setAnimationResponse({
+        animationUrl: data.animationFile ? `${API_BASE_URL}/${data.animationFile}` : undefined,
         question: question,
-        answer: data.answer
+        answer: data.answer,
+        animationError: data.animationError
       });
+      
+      // If the backend reported an animation error, set our state accordingly
+      if (data.animationError) {
+        setAnimationError(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to get answer");
       console.error(err);
@@ -111,7 +118,7 @@ export function VideoAnswerForm() {
             Doubt Solver AI
           </h1>
           <p className="text-muted-foreground">
-            Ask a question and get a personalized video and audio response
+            Ask a question and get a mathematical visualization with diagrams and equations
           </p>
         </header>
         
@@ -242,57 +249,118 @@ export function VideoAnswerForm() {
               </div>
             )}
 
-            {/* Audio Response */}
-            {audioResponse && (
+            {/* Animation Response */}
+            {animationResponse && (
               <div className="bg-card rounded-lg border shadow-sm p-5">
                 <h2 className="font-semibold text-lg mb-2">Answer</h2>
                 <p className="text-muted-foreground text-sm mb-4">
-                  Question: {audioResponse.question}
+                  Question: {animationResponse.question}
                 </p>
                 
                 <div className="bg-muted/50 rounded-lg p-4 mb-5">
-                  {audioResponse.answer && (
-                    <p className="text-sm leading-relaxed">{audioResponse.answer.text}</p>
+                  {animationResponse.answer && (
+                    <p className="text-sm leading-relaxed">{animationResponse.answer.text}</p>
                   )}
                 </div>
                 
-                {audioResponse.videoUrl && (
-                  <div className="bg-primary/5 rounded-lg p-4 mb-4">
-                    <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
-                        <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
-                        <line x1="7" y1="2" x2="7" y2="22" />
-                        <line x1="17" y1="2" x2="17" y2="22" />
-                        <line x1="2" y1="12" x2="22" y2="12" />
-                        <line x1="2" y1="7" x2="7" y2="7" />
-                        <line x1="2" y1="17" x2="7" y2="17" />
-                        <line x1="17" y1="17" x2="22" y2="17" />
-                        <line x1="17" y1="7" x2="22" y2="7" />
-                      </svg>
-                      Video Response
-                    </h3>
-                    <video 
-                      src={audioResponse.videoUrl} 
-                      controls 
-                      className="w-full rounded-md" 
-                    />
+                {animationResponse.animationUrl && (
+                  <div className="mb-5">
+                    <h3 className="text-md font-semibold mb-3 border-b pb-2">Visual Explanation</h3>
+                    
+                    <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-4 mb-4 border border-blue-100 dark:border-blue-900">
+                      <h3 className="text-sm font-medium mb-2 flex items-center gap-2 text-blue-700 dark:text-blue-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-600 dark:text-blue-400">
+                          <path d="M12 2v6.5" />
+                          <path d="M18.4 6.5 13.5 9" />
+                          <path d="M18.4 17.5 13.5 15" />
+                          <path d="M12 15.5V22" />
+                          <path d="M5.6 17.5 10.5 15" />
+                          <path d="M5.6 6.5 10.5 9" />
+                        </svg>
+                        Mathematical Visualization
+                      </h3>
+                      <p className="text-xs text-blue-600/70 dark:text-blue-500/70 mb-2">
+                        A visual diagram with mathematical equations to explain the concept.
+                      </p>
+                      
+                      {animationResponse?.animationUrl && !animationError && (
+                        <video 
+                          src={animationResponse.animationUrl} 
+                          controls 
+                          className="w-full rounded-md" 
+                          onError={() => setAnimationError(true)}
+                        />
+                      )}
+
+                      {animationError && (
+                        <>
+                          <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded text-xs">
+                            <p className="text-red-600 font-medium mb-1">
+                              {animationResponse?.animationError 
+                                ? "The animation could not be generated due to a technical issue."
+                                : "Unable to load the animation. This could be due to one of the following reasons:"}
+                            </p>
+                            <ul className="list-disc pl-4 text-red-500 space-y-1">
+                              {!animationResponse?.animationError && (
+                                <>
+                                  <li>The animation is still being generated (it may take up to 30-45 seconds)</li>
+                                  <li>The server is experiencing high load</li>
+                                </>
+                              )}
+                              <li>The animation generation encountered a compatibility issue with the mathematical concepts</li>
+                              <li>The system may need additional context to properly visualize this concept</li>
+                            </ul>
+                            <div className="mt-2">
+                              <button 
+                                className="bg-red-100 hover:bg-red-200 text-red-700 text-xs py-1 px-2 rounded transition-colors"
+                                onClick={() => window.location.reload()}
+                              >
+                                Refresh Page
+                              </button>
+                              {!animationResponse?.animationError && (
+                                <button 
+                                  className="bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs py-1 px-2 rounded ml-2 transition-colors"
+                                  onClick={() => setAnimationError(false)}
+                                >
+                                  Try Again
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {/* Fallback mathematical animation illustration */}
+                          <div className="mt-4 p-3 bg-white dark:bg-gray-800 rounded border border-blue-100 dark:border-blue-900/50">
+                            <p className="text-xs text-center text-gray-500 mb-2">Displaying mathematical equations visualization</p>
+                            <div className="flex justify-center">
+                              <div 
+                                className="h-64 w-full bg-blue-50 dark:bg-blue-900/20 rounded flex items-center justify-center overflow-hidden"
+                                style={{ 
+                                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Cpath fill='%236366f1' fill-opacity='0.1' d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z'%3E%3C/path%3E%3C/svg%3E")`,
+                                }}
+                              >
+                                <div className="py-4 px-6 bg-white/80 dark:bg-gray-900/80 rounded shadow-md transform rotate-1">
+                                  <div className="text-center">
+                                    <div className="mb-2 text-blue-800 dark:text-blue-300 font-math text-lg">f(x) = x<sup>2</sup></div>
+                                    <div className="text-red-800 dark:text-red-300 font-math text-lg">f'(x) = 2x</div>
+                                    <div className="mt-3 border-t border-blue-100 dark:border-blue-800 pt-2">
+                                      <div className="text-purple-800 dark:text-purple-300 font-math text-lg">∫ x<sup>2</sup> dx = <sup>x<sup>3</sup></sup>⁄<sub>3</sub> + C</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      
+                      {!animationError && (
+                        <p className="text-xs text-gray-500 italic mt-2">
+                          Note: Animation generation may take up to 45 seconds. If it doesn't appear, please wait and refresh.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
-                
-                <div className="bg-primary/5 rounded-lg p-4">
-                  <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
-                      <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
-                      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
-                    </svg>
-                    Audio Version
-                  </h3>
-                  <audio 
-                    src={audioResponse.audioUrl} 
-                    controls 
-                    className="w-full" 
-                  />
-                </div>
               </div>
             )}
           </div>
